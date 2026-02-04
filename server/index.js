@@ -92,20 +92,43 @@ app.put('/api/sessions/:sessionId', (req, res) => {
   res.json(session);
 });
 
-// POST /api/chat -- send message to a session
+// POST /api/chat -- send message to a session (with SSE for status updates)
 app.post('/api/chat', async (req, res) => {
-  const { sessionId, message } = req.body;
+  const { sessionId, message, stream } = req.body;
 
   if (!sessionId || !message) {
     return res.status(400).json({ error: 'sessionId and message are required' });
   }
 
-  try {
-    const result = await aiClient.chat(sessionId, message);
-    res.json(result);
-  } catch (err) {
-    console.error(`Chat error [${sessionId}]:`, err);
-    res.status(500).json({ error: err.message || 'Internal server error' });
+  // If stream mode, use Server-Sent Events
+  if (stream) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const onStatus = (status) => {
+      res.write(`data: ${JSON.stringify({ type: 'status', status })}\n\n`);
+    };
+
+    try {
+      const result = await aiClient.chat(sessionId, message, onStatus);
+      res.write(`data: ${JSON.stringify({ type: 'done', ...result })}\n\n`);
+      res.end();
+    } catch (err) {
+      console.error(`Chat error [${sessionId}]:`, err);
+      res.write(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`);
+      res.end();
+    }
+  } else {
+    // Non-streaming mode (backwards compatible)
+    try {
+      const result = await aiClient.chat(sessionId, message);
+      res.json(result);
+    } catch (err) {
+      console.error(`Chat error [${sessionId}]:`, err);
+      res.status(500).json({ error: err.message || 'Internal server error' });
+    }
   }
 });
 

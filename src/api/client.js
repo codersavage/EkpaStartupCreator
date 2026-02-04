@@ -91,7 +91,7 @@ export async function renameSession(sessionId, title) {
   return res.json();
 }
 
-/** Send a chat message to a session */
+/** Send a chat message to a session (non-streaming) */
 export async function sendMessage(sessionId, message) {
   const res = await fetch(`${BASE}/chat`, {
     method: 'POST',
@@ -103,6 +103,63 @@ export async function sendMessage(sessionId, message) {
     throw new Error(err.error || 'Chat request failed');
   }
   return res.json(); // { text, editedFiles }
+}
+
+/**
+ * Send a chat message with streaming status updates
+ * @param {string} sessionId 
+ * @param {string} message 
+ * @param {Function} onStatus - Callback for status updates: (status: string) => void
+ * @returns {Promise<{text: string, editedFiles: string[]}>}
+ */
+export async function sendMessageStream(sessionId, message, onStatus) {
+  const res = await fetch(`${BASE}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, message, stream: true }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Chat request failed');
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    
+    // Parse SSE events
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          
+          if (data.type === 'status' && onStatus) {
+            onStatus(data.status);
+          } else if (data.type === 'done') {
+            return { text: data.text, editedFiles: data.editedFiles || [] };
+          } else if (data.type === 'error') {
+            throw new Error(data.error);
+          }
+        } catch (e) {
+          if (e.message !== 'Unexpected end of JSON input') {
+            console.error('SSE parse error:', e);
+          }
+        }
+      }
+    }
+  }
+
+  throw new Error('Stream ended without response');
 }
 
 /** Clear a session's chat history */

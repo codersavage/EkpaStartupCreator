@@ -11,7 +11,8 @@ export default function ChatPane() {
     newSession, 
     removeSession, 
     messages, 
-    loading, 
+    loading,
+    status,
     send, 
     clear 
   } = useChat()
@@ -176,7 +177,7 @@ export default function ChatPane() {
               </div>
               <div className="bg-white dark:bg-gray-800 ring-1 ring-gray-200 dark:ring-gray-700 rounded-xl px-3 py-2 text-sm text-gray-400 dark:text-gray-500 flex items-center gap-2">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Thinking...
+                {status || 'Thinking...'}
               </div>
             </div>
           )}

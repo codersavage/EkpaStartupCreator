@@ -75,6 +75,24 @@ function deleteSession(sessionId) {
 }
 
 /**
+ * Get a human-readable description of a function call
+ */
+function getStatusMessage(name, args) {
+  switch (name) {
+    case 'edit_file':
+      const fileName = args.path?.split('/').pop() || 'file';
+      return `Editing ${fileName}...`;
+    case 'read_file':
+      const readFile = args.path?.split('/').pop() || 'file';
+      return `Reading ${readFile}...`;
+    case 'get_file_tree':
+      return 'Scanning workspace...';
+    default:
+      return `Running ${name}...`;
+  }
+}
+
+/**
  * Execute a function call and return the result
  * @param {string} name - Function name
  * @param {Object} args - Function arguments
@@ -143,9 +161,10 @@ function executeFunctionCall(name, args, toolUseId = null) {
  * Returns { text, editedFiles }
  * @param {string} sessionId 
  * @param {string} userMessage 
+ * @param {Function} onStatus - Optional callback for status updates: (status: string) => void
  * @returns {Promise<{text: string, editedFiles: string[]}>}
  */
-async function chat(sessionId, userMessage) {
+async function chat(sessionId, userMessage, onStatus = null) {
   // Auto-create session if it doesn't exist
   if (!sessions.has(sessionId)) {
     const session = {
@@ -176,6 +195,9 @@ async function chat(sessionId, userMessage) {
   const tools = provider.getToolDeclarations();
 
   let maxIterations = 10;
+
+  // Send initial status
+  if (onStatus) onStatus('Thinking...');
 
   while (maxIterations-- > 0) {
     // Generate response from the AI
@@ -211,6 +233,11 @@ async function chat(sessionId, userMessage) {
     const functionResponses = [];
 
     for (const call of functionCalls) {
+      // Send status update for each function call
+      if (onStatus) {
+        onStatus(getStatusMessage(call.name, call.args));
+      }
+
       const result = executeFunctionCall(call.name, call.args, call.id);
       
       if (result.edited) {
@@ -226,6 +253,9 @@ async function chat(sessionId, userMessage) {
 
     // Add function responses to history
     provider.addFunctionResponses(history, functionResponses);
+
+    // Update status after processing function calls
+    if (onStatus) onStatus('Thinking...');
   }
 
   throw new Error('Too many function call iterations');

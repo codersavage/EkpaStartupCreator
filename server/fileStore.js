@@ -1,5 +1,15 @@
-// In-memory file store with seed content
+// File store with disk persistence
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Workspace directory for persistent storage
+const WORKSPACE_DIR = path.join(__dirname, '..', 'workspace');
+
+// In-memory cache
 const files = new Map();
 
 let ideaCounter = 1;
@@ -73,38 +83,117 @@ function getIdeaTemplate(ideaName) {
   };
 }
 
-// Initialize the store with "Idea 1"
-const initialIdea = getIdeaTemplate('Idea 1');
-for (const [path, content] of Object.entries(initialIdea)) {
-  files.set(path, content);
+// Ensure workspace directory exists
+function ensureWorkspaceDir() {
+  if (!fs.existsSync(WORKSPACE_DIR)) {
+    fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
+  }
 }
+
+// Load all files from workspace directory into memory
+function loadFromDisk() {
+  ensureWorkspaceDir();
+  
+  function walkDir(dir, basePath = '') {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
+      
+      if (entry.isDirectory()) {
+        walkDir(fullPath, relativePath);
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        files.set(relativePath, content);
+      }
+    }
+  }
+  
+  walkDir(WORKSPACE_DIR);
+  
+  // Update ideaCounter based on existing ideas
+  for (const filePath of files.keys()) {
+    const match = filePath.match(/^Idea (\d+)\//);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num >= ideaCounter) {
+        ideaCounter = num;
+      }
+    }
+  }
+}
+
+// Save a file to disk
+function saveToDisk(relativePath, content) {
+  ensureWorkspaceDir();
+  const fullPath = path.join(WORKSPACE_DIR, relativePath);
+  const dir = path.dirname(fullPath);
+  
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  
+  fs.writeFileSync(fullPath, content, 'utf-8');
+}
+
+// Delete a file from disk
+function deleteFromDisk(relativePath) {
+  const fullPath = path.join(WORKSPACE_DIR, relativePath);
+  if (fs.existsSync(fullPath)) {
+    fs.unlinkSync(fullPath);
+  }
+}
+
+// Initialize: load existing files or create default
+function initialize() {
+  loadFromDisk();
+  
+  // If no files exist, create "Idea 1" with templates
+  if (files.size === 0) {
+    console.log('[FileStore] No existing files found, creating Idea 1...');
+    const initialIdea = getIdeaTemplate('Idea 1');
+    for (const [filePath, content] of Object.entries(initialIdea)) {
+      files.set(filePath, content);
+      saveToDisk(filePath, content);
+    }
+  } else {
+    console.log(`[FileStore] Loaded ${files.size} files from workspace`);
+  }
+}
+
+// Initialize on module load
+initialize();
 
 /** Get all files as { path: content } */
 function getAll() {
   const result = {};
-  for (const [path, content] of files) {
-    result[path] = content;
+  for (const [filePath, content] of files) {
+    result[filePath] = content;
   }
   return result;
 }
 
 /** Get file content by path */
-function getFile(path) {
-  return files.get(path) || null;
+function getFile(filePath) {
+  return files.get(filePath) || null;
 }
 
-/** Set file content (create or update) */
-function setFile(path, content) {
-  files.set(path, content);
+/** Set file content (create or update) - persists to disk */
+function setFile(filePath, content) {
+  files.set(filePath, content);
+  saveToDisk(filePath, content);
 }
 
-/** Rename a file or folder */
+/** Rename a file or folder - persists to disk */
 function rename(oldPath, newPath) {
   // Check if it's a file rename
   if (files.has(oldPath)) {
     const content = files.get(oldPath);
     files.delete(oldPath);
+    deleteFromDisk(oldPath);
     files.set(newPath, content);
+    saveToDisk(newPath, content);
     return { renamed: [{ from: oldPath, to: newPath }] };
   }
 
@@ -115,18 +204,20 @@ function rename(oldPath, newPath) {
   const renamed = [];
   const toRename = [];
 
-  for (const path of files.keys()) {
-    if (path.startsWith(oldPrefix)) {
-      toRename.push(path);
+  for (const filePath of files.keys()) {
+    if (filePath.startsWith(oldPrefix)) {
+      toRename.push(filePath);
     }
   }
 
-  for (const path of toRename) {
-    const content = files.get(path);
-    const updatedPath = newPrefix + path.slice(oldPrefix.length);
-    files.delete(path);
+  for (const filePath of toRename) {
+    const content = files.get(filePath);
+    const updatedPath = newPrefix + filePath.slice(oldPrefix.length);
+    files.delete(filePath);
+    deleteFromDisk(filePath);
     files.set(updatedPath, content);
-    renamed.push({ from: path, to: updatedPath });
+    saveToDisk(updatedPath, content);
+    renamed.push({ from: filePath, to: updatedPath });
   }
 
   return { renamed };
@@ -137,8 +228,9 @@ function createIdea() {
   ideaCounter++;
   const ideaName = `Idea ${ideaCounter}`;
   const template = getIdeaTemplate(ideaName);
-  for (const [path, content] of Object.entries(template)) {
-    files.set(path, content);
+  for (const [filePath, content] of Object.entries(template)) {
+    files.set(filePath, content);
+    saveToDisk(filePath, content);
   }
   return ideaName;
 }

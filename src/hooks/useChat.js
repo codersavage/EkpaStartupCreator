@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { fetchSessions, createSession, deleteSession, sendMessage, clearChat } from '../api/client'
+import { fetchSessions, createSession, deleteSession, sendMessageStream, clearChat } from '../api/client'
 import { useFiles } from '../context/FileContext'
 
 const GREETING = "Hi! I'm your AI assistant for Ekpa. I can help with strategy, product development, and customer insights. What would you like to work on?"
@@ -10,6 +10,7 @@ export function useChat() {
   const [activeSessionId, setActiveSessionId] = useState(null)
   const [messages, setMessages] = useState({}) // sessionId -> [{role, text, editedFiles?}]
   const [loading, setLoading] = useState(false)
+  const [status, setStatus] = useState('') // Current thinking status
   const initialized = useRef(false)
 
   // Initialize: fetch sessions or create first one
@@ -89,7 +90,7 @@ export function useChat() {
     }
   }, [sessions])
 
-  // Send message to current session
+  // Send message to current session (with streaming status)
   const send = useCallback(
     async (text) => {
       if (!activeSessionId || !text.trim() || loading) return
@@ -100,9 +101,15 @@ export function useChat() {
         [activeSessionId]: [...(prev[activeSessionId] || []), userMsg],
       }))
       setLoading(true)
+      setStatus('Thinking...')
 
       try {
-        const result = await sendMessage(activeSessionId, text.trim())
+        const result = await sendMessageStream(
+          activeSessionId, 
+          text.trim(),
+          (newStatus) => setStatus(newStatus) // Status callback
+        )
+        
         const agentMsg = {
           role: 'agent',
           text: result.text,
@@ -136,6 +143,7 @@ export function useChat() {
         }))
       } finally {
         setLoading(false)
+        setStatus('')
       }
     },
     [activeSessionId, loading, refreshFiles]
@@ -167,6 +175,7 @@ export function useChat() {
     removeSession,
     messages: messages[activeSessionId] || [],
     loading,
+    status, // Current thinking status (e.g., "Reading file...", "Editing features.md...")
     send,
     clear,
   }
