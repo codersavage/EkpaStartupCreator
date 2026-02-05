@@ -3,6 +3,15 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+// Lazy import to avoid circular dependency issues
+let memoryStore = null;
+async function getMemoryStore() {
+  if (!memoryStore) {
+    memoryStore = (await import('./memoryStore.js')).default;
+  }
+  return memoryStore;
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -27,6 +36,16 @@ function getIdeaTemplate(ideaName) {
 
 ## Key Insights
 - (Record key findings)
+`,
+
+    [`${ideaName}/research/assumptions.md`]: `# Assumptions
+
+## Untested Assumptions
+- (List your assumptions here)
+- (Each assumption should be testable)
+
+## Testing Strategy
+- (How will you validate each assumption?)
 `,
 
     [`${ideaName}/MVP/features.md`]: `# Feature List
@@ -179,10 +198,70 @@ function getFile(filePath) {
   return files.get(filePath) || null;
 }
 
+/**
+ * Extract idea name from file path
+ */
+function extractIdeaName(filePath) {
+  const parts = filePath.split('/');
+  if (parts.length > 0) {
+    return parts[0];
+  }
+  return null;
+}
+
+/**
+ * Handle assumption updates
+ */
+async function handleAssumptionUpdate(filePath, content) {
+  const ideaName = extractIdeaName(filePath);
+  if (!ideaName) return;
+
+  // Parse markdown bullet points
+  const lines = content.split('\n');
+  const assumptions = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // Match lines starting with - or *
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      const text = trimmed.substring(2).trim();
+      // Skip empty lines and section headers in parentheses
+      if (text && !text.startsWith('(') && text.length > 5) {
+        assumptions.push(text);
+      }
+    }
+  }
+
+  // Create memory for each new assumption
+  const store = await getMemoryStore();
+  for (const assumptionText of assumptions) {
+    // Check if memory already exists (dedupe by summary)
+    const existing = store.getAllMemories()
+      .find(m => m.type === 'ASSUMPTION' && m.summary === assumptionText);
+
+    if (!existing) {
+      store.createMemory({
+        type: 'ASSUMPTION',
+        summary: assumptionText,
+        entities: { ideas: [ideaName] },
+        signals: { evidenceQuality: 'none', confidence: 0.5 },
+        importance: 0.6,
+        source: { kind: 'USER_ACTION', ref: filePath }
+      });
+      console.log(`Created ASSUMPTION memory for: ${assumptionText.substring(0, 50)}...`);
+    }
+  }
+}
+
 /** Set file content (create or update) - persists to disk */
 function setFile(filePath, content) {
   files.set(filePath, content);
   saveToDisk(filePath, content);
+
+  // Hook: Track assumptions
+  if (filePath.includes('assumptions.md')) {
+    handleAssumptionUpdate(filePath, content);
+  }
 }
 
 /** Rename a file or folder - persists to disk */

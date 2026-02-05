@@ -1,6 +1,7 @@
 import { createProviderFromEnv, getAvailableProviders } from './providers/index.js';
 import agentConfig from './agentConfig.js';
 import fileStore from './fileStore.js';
+import memoryStore from './memoryStore.js';
 
 // Create provider instance from environment configuration
 const provider = createProviderFromEnv();
@@ -157,14 +158,85 @@ function executeFunctionCall(name, args, toolUseId = null) {
 }
 
 /**
- * Send a message to a chat session and process function calls in a loop.
- * Returns { text, editedFiles }
- * @param {string} sessionId 
- * @param {string} userMessage 
- * @param {Function} onStatus - Optional callback for status updates: (status: string) => void
- * @returns {Promise<{text: string, editedFiles: string[]}>}
+ * Extract active ideas from file tree text
  */
-async function chat(sessionId, userMessage, onStatus = null) {
+function extractIdeasFromTree(fileTreeText) {
+  const ideas = [];
+  const lines = fileTreeText.split('\n');
+
+  for (const line of lines) {
+    // Match lines like "├── Idea 1/" or "└── My Idea/"
+    const match = line.match(/[├└]── (.+?)\/$/);
+    if (match) {
+      const ideaName = match[1].trim();
+      // Exclude system folders
+      if (ideaName !== 'memory' && ideaName !== 'customers') {
+        ideas.push(ideaName);
+      }
+    }
+  }
+
+  return ideas;
+}
+
+/**
+ * Build agent context with memory retrieval
+ */
+function buildAgentContext(userMessage, sessionId) {
+  const fileTreeText = fileStore.getTreeText();
+  const activeIdeas = extractIdeasFromTree(fileTreeText);
+
+  const memoryPack = memoryStore.retrieveMemory(userMessage, {
+    activeIdeas,
+    maxResults: 15
+  });
+
+  return { fileTreeText, memoryPack, activeIdeas };
+}
+
+/**
+ * Format memory pack for system prompt
+ */
+function formatMemoryPack(memoryPack) {
+  if (!memoryPack || memoryPack.length === 0) {
+    return '';
+  }
+
+  let text = '\n\n## MEMORY BANK (Relevant Context)\n';
+  text += `Retrieved ${memoryPack.length} relevant memories:\n\n`;
+
+  for (const mem of memoryPack) {
+    text += `**[${mem.type}]** (ID: ${mem.id}, Importance: ${mem.importance})\n`;
+    text += `${mem.summary}\n`;
+
+    if (mem.entities?.ideas?.length) {
+      text += `Related ideas: ${mem.entities.ideas.join(', ')}\n`;
+    }
+
+    if (mem.signals?.evidenceQuality) {
+      text += `Evidence: ${mem.signals.evidenceQuality}\n`;
+    }
+
+    if (mem.signals?.moneySignal) {
+      text += `Money Signal: ${mem.signals.moneySignal}\n`;
+    }
+
+    text += '\n';
+  }
+
+  return text;
+}
+
+/**
+ * Send a message to a chat session and process function calls in a loop.
+ * Returns { text, editedFiles, memoryUsed }
+ * @param {string} sessionId
+ * @param {string} userMessage
+ * @param {Function} onStatus - Optional callback for status updates: (status: string) => void
+ * @param {string} mode - Agent mode: 'copilot' or 'devils_advocate'
+ * @returns {Promise<{text: string, editedFiles: string[], memoryUsed?: any[]}>}
+ */
+async function chat(sessionId, userMessage, onStatus = null, mode = 'copilot') {
   // Auto-create session if it doesn't exist
   if (!sessions.has(sessionId)) {
     const session = {
@@ -186,10 +258,16 @@ async function chat(sessionId, userMessage, onStatus = null) {
   // Add user message to history
   provider.addUserMessage(history, userMessage);
 
-  // Build system prompt with file tree context
-  const fileTreeText = fileStore.getTreeText();
-  const basePrompt = agentConfig.getSystemPrompt();
-  const systemPrompt = `${basePrompt}\n\nCurrent workspace file tree:\n${fileTreeText}\n\nUse read_file to read specific file contents when needed. Use get_file_tree to refresh the tree if it may have changed.`;
+  // Build system prompt with file tree context and memory injection
+  const context = buildAgentContext(userMessage, sessionId);
+  const memorySection = formatMemoryPack(context.memoryPack);
+
+  // Select base prompt based on mode
+  const basePrompt = mode === 'devils_advocate'
+    ? agentConfig.getDevilsAdvocatePrompt()
+    : agentConfig.getSystemPrompt();
+
+  const systemPrompt = `${basePrompt}\n\nCurrent workspace file tree:\n${context.fileTreeText}${memorySection}\n\nUse read_file to read specific file contents when needed. Use get_file_tree to refresh the tree if it may have changed.`;
 
   // Get tool declarations for this provider
   const tools = provider.getToolDeclarations();
@@ -223,7 +301,12 @@ async function chat(sessionId, userMessage, onStatus = null) {
         session.title = userMessage.slice(0, 50) + (userMessage.length > 50 ? '...' : '');
       }
 
-      return { text, editedFiles };
+      // Return with memory used
+      return {
+        text,
+        editedFiles,
+        memoryUsed: context.memoryPack
+      };
     }
 
     // Add assistant response with function calls to history

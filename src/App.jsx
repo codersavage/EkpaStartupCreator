@@ -4,12 +4,15 @@ import { FileProvider } from './context/FileContext'
 import Sidebar from './components/Sidebar'
 import Editor from './components/Editor'
 import ChatPane from './components/ChatPane'
+import MemoryPanel from './components/MemoryPanel'
+import PipelineTable from './components/PipelineTable'
 import { Sun, Moon, PanelLeft, PanelRight } from 'lucide-react'
 
 function AppLayout() {
   const { dark, toggle } = useTheme()
   const [showSidebar, setShowSidebar] = useState(true)
   const [showChat, setShowChat] = useState(true)
+  const [activeView, setActiveView] = useState('editor') // 'editor' | 'memory' | 'pipeline'
 
   return (
     <div className="h-screen flex flex-col bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 transition-colors">
@@ -54,8 +57,47 @@ function AppLayout() {
           </div>
         )}
 
-        <div className="flex-1 min-w-0 overflow-hidden">
-          <Editor />
+        <div className="flex-1 min-w-0 overflow-hidden flex flex-col">
+          {/* View tabs */}
+          <div className="flex gap-1 px-4 pt-2 pb-1 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+            <button
+              onClick={() => setActiveView('editor')}
+              className={`px-3 py-1 text-xs rounded transition-colors ${
+                activeView === 'editor'
+                  ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700'
+                  : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              Editor
+            </button>
+            <button
+              onClick={() => setActiveView('memory')}
+              className={`px-3 py-1 text-xs rounded transition-colors ${
+                activeView === 'memory'
+                  ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700'
+                  : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              Memory
+            </button>
+            <button
+              onClick={() => setActiveView('pipeline')}
+              className={`px-3 py-1 text-xs rounded transition-colors ${
+                activeView === 'pipeline'
+                  ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700'
+                  : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              Pipeline
+            </button>
+          </div>
+
+          {/* Active view content */}
+          <div className="flex-1 overflow-hidden">
+            {activeView === 'editor' && <Editor />}
+            {activeView === 'memory' && <MemoryPanel />}
+            {activeView === 'pipeline' && <PipelineTable />}
+          </div>
         </div>
 
         {showChat && (

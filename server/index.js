@@ -3,6 +3,8 @@ import express from 'express';
 import cors from 'cors';
 import fileStore from './fileStore.js';
 import aiClient from './aiClient.js';
+import memoryStore from './memoryStore.js';
+import conversationStore from './conversationStore.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -94,11 +96,14 @@ app.put('/api/sessions/:sessionId', (req, res) => {
 
 // POST /api/chat -- send message to a session (with SSE for status updates)
 app.post('/api/chat', async (req, res) => {
-  const { sessionId, message, stream } = req.body;
+  const { sessionId, message, stream, mode } = req.body;
 
   if (!sessionId || !message) {
     return res.status(400).json({ error: 'sessionId and message are required' });
   }
+
+  // Default to 'copilot' mode if not specified
+  const agentMode = mode || 'copilot';
 
   // If stream mode, use Server-Sent Events
   if (stream) {
@@ -112,7 +117,7 @@ app.post('/api/chat', async (req, res) => {
     };
 
     try {
-      const result = await aiClient.chat(sessionId, message, onStatus);
+      const result = await aiClient.chat(sessionId, message, onStatus, agentMode);
       res.write(`data: ${JSON.stringify({ type: 'done', ...result })}\n\n`);
       res.end();
     } catch (err) {
@@ -123,7 +128,7 @@ app.post('/api/chat', async (req, res) => {
   } else {
     // Non-streaming mode (backwards compatible)
     try {
-      const result = await aiClient.chat(sessionId, message);
+      const result = await aiClient.chat(sessionId, message, null, agentMode);
       res.json(result);
     } catch (err) {
       console.error(`Chat error [${sessionId}]:`, err);
@@ -145,6 +150,139 @@ app.post('/api/chat/clear', (req, res) => {
 // GET /api/provider -- get current AI provider info
 app.get('/api/provider', (_req, res) => {
   res.json(aiClient.getProviderInfo());
+});
+
+// ===== Memory Bank =====
+
+// GET /api/memory -- list all memories (with optional filters)
+app.get('/api/memory', (req, res) => {
+  const { type, idea, customer, search } = req.query;
+  const filters = {};
+  if (type) filters.type = type;
+  if (idea) filters.idea = idea;
+  if (customer) filters.customer = customer;
+  if (search) filters.search = search;
+
+  const memories = memoryStore.getAllMemories(filters);
+  res.json({ memories });
+});
+
+// POST /api/memory -- create new memory
+app.post('/api/memory', (req, res) => {
+  const { type, summary, details, entities, signals, importance, source } = req.body;
+
+  if (!type || !summary) {
+    return res.status(400).json({ error: 'type and summary are required' });
+  }
+
+  const memory = memoryStore.createMemory({
+    type,
+    summary,
+    details,
+    entities,
+    signals,
+    importance,
+    source
+  });
+
+  res.json({ memory });
+});
+
+// GET /api/memory/:id -- get specific memory
+app.get('/api/memory/:id', (req, res) => {
+  const { id } = req.params;
+  const memory = memoryStore.getMemory(id);
+
+  if (!memory) {
+    return res.status(404).json({ error: `Memory ${id} not found` });
+  }
+
+  res.json({ memory });
+});
+
+// PUT /api/memory/:id -- update memory
+app.put('/api/memory/:id', (req, res) => {
+  const { id } = req.params;
+  const updates = req.body;
+
+  try {
+    const memory = memoryStore.updateMemory(id, updates);
+    res.json({ memory });
+  } catch (err) {
+    res.status(404).json({ error: err.message });
+  }
+});
+
+// POST /api/memory/retrieve -- retrieve relevant memories
+app.post('/api/memory/retrieve', (req, res) => {
+  const { query, context } = req.body;
+
+  if (!query) {
+    return res.status(400).json({ error: 'query is required' });
+  }
+
+  const memories = memoryStore.retrieveMemory(query, context || {});
+  res.json({ memories });
+});
+
+// ===== Customer Conversations =====
+
+// GET /api/conversations -- list all conversations (with optional filters)
+app.get('/api/conversations', (req, res) => {
+  const { completed, potentialCustomer, putMoneyDown, idea } = req.query;
+  const filters = {};
+
+  if (completed !== undefined) filters.completed = completed === 'true';
+  if (potentialCustomer) filters.potentialCustomer = potentialCustomer;
+  if (putMoneyDown) filters.putMoneyDown = putMoneyDown;
+  if (idea) filters.idea = idea;
+
+  const conversations = conversationStore.getAllConversations(filters);
+  res.json({ conversations });
+});
+
+// POST /api/conversations -- create new conversation
+app.post('/api/conversations', (req, res) => {
+  const data = req.body;
+  const conversation = conversationStore.createConversation(data);
+  res.json({ conversation });
+});
+
+// GET /api/conversations/:id -- get specific conversation
+app.get('/api/conversations/:id', (req, res) => {
+  const { id } = req.params;
+  const conversation = conversationStore.getConversation(id);
+
+  if (!conversation) {
+    return res.status(404).json({ error: `Conversation ${id} not found` });
+  }
+
+  res.json({ conversation });
+});
+
+// PUT /api/conversations/:id -- update conversation
+app.put('/api/conversations/:id', (req, res) => {
+  const { id } = req.params;
+  const updates = req.body;
+
+  try {
+    const conversation = conversationStore.updateConversation(id, updates);
+    res.json({ conversation });
+  } catch (err) {
+    res.status(404).json({ error: err.message });
+  }
+});
+
+// POST /api/conversations/:id/complete -- complete conversation (triggers side effects)
+app.post('/api/conversations/:id/complete', (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const conversation = conversationStore.completeConversation(id);
+    res.json({ conversation });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 app.listen(PORT, () => {

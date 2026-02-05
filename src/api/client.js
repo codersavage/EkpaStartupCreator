@@ -107,16 +107,17 @@ export async function sendMessage(sessionId, message) {
 
 /**
  * Send a chat message with streaming status updates
- * @param {string} sessionId 
- * @param {string} message 
+ * @param {string} sessionId
+ * @param {string} message
  * @param {Function} onStatus - Callback for status updates: (status: string) => void
- * @returns {Promise<{text: string, editedFiles: string[]}>}
+ * @param {string} mode - Agent mode: 'copilot' or 'devils_advocate'
+ * @returns {Promise<{text: string, editedFiles: string[], memoryUsed?: any[]}>}
  */
-export async function sendMessageStream(sessionId, message, onStatus) {
+export async function sendMessageStream(sessionId, message, onStatus, mode = 'copilot') {
   const res = await fetch(`${BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId, message, stream: true }),
+    body: JSON.stringify({ sessionId, message, stream: true, mode }),
   });
 
   if (!res.ok) {
@@ -146,7 +147,11 @@ export async function sendMessageStream(sessionId, message, onStatus) {
           if (data.type === 'status' && onStatus) {
             onStatus(data.status);
           } else if (data.type === 'done') {
-            return { text: data.text, editedFiles: data.editedFiles || [] };
+            return {
+              text: data.text,
+              editedFiles: data.editedFiles || [],
+              memoryUsed: data.memoryUsed || []
+            };
           } else if (data.type === 'error') {
             throw new Error(data.error);
           }

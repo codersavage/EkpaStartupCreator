@@ -92,7 +92,7 @@ export function useChat() {
 
   // Send message to current session (with streaming status)
   const send = useCallback(
-    async (text) => {
+    async (text, mode = 'copilot') => {
       if (!activeSessionId || !text.trim() || loading) return
 
       const userMsg = { role: 'user', text: text.trim() }
@@ -105,15 +105,17 @@ export function useChat() {
 
       try {
         const result = await sendMessageStream(
-          activeSessionId, 
+          activeSessionId,
           text.trim(),
-          (newStatus) => setStatus(newStatus) // Status callback
+          (newStatus) => setStatus(newStatus), // Status callback
+          mode // Pass mode to API
         )
-        
+
         const agentMsg = {
           role: 'agent',
           text: result.text,
           editedFiles: result.editedFiles,
+          memoryUsed: result.memoryUsed,
         }
         setMessages((prev) => ({
           ...prev,

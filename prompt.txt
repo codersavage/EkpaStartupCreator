@@ -1,0 +1,255 @@
+You are Claude Code working INSIDE an existing React + Vite + TypeScript codebase.
+
+Context:
+- This app already functions as a basic “Cursor for founders”:
+  - file/workspace OS (documents, markdown files, folders)
+  - agent/copilot that can read/search/edit files via patch application
+  - local persistence (localStorage / IndexedDB / filesystem abstraction)
+  - runs on localhost
+- Your job is to EXTEND this system, not rebuild it.
+
+Product shift:
+Turn this from a helpful copilot into an “execution-discomfort system” by adding:
+1) a durable Memory Bank (inspired by Generative Agents)
+2) a Devil’s Advocate agent
+3) enforced customer conversation tracking
+4) automatic evidence logging into files
+5) visible accountability + retrieval for every agent query
+
+No real LLM API calls are required unless already present.
+
+--------------------------------------------------
+CORE PRINCIPLE (DO NOT VIOLATE)
+--------------------------------------------------
+This system must:
+- accumulate memory across time
+- remember contradictions and failures
+- block progress without real-world evidence
+- inject memory into every agent query
+
+This is NOT just prompting.
+This is state, enforcement, and memory.
+
+--------------------------------------------------
+1) MEMORY BANK (FOUNDATIONAL)
+--------------------------------------------------
+Replace “killed idea memory” with a GENERAL MEMORY BANK.
+
+Memory Bank purpose:
+- store critical moments, decisions, assumptions, evidence, and contradictions
+- be readable by humans AND retrievable by agents
+- persist across sessions
+- never silently disappear
+
+### MemoryItem schema (add to types)
+MemoryItem {
+  id: string
+  createdAt: number
+  updatedAt: number
+
+  type:
+    "ASSUMPTION"
+    "DECISION"
+    "CUSTOMER_CONVO"
+    "EVIDENCE"
+    "CONTRADICTION"
+    "LESSON"
+    "MILESTONE"
+
+  summary: string            // short, human-readable
+  details?: string           // optional long form
+
+  entities?: {
+    ideas?: string[]
+    customers?: string[]
+    artifacts?: string[]
+    tags?: string[]
+  }
+
+  signals?: {
+    evidenceQuality?: "none" | "weak" | "moderate" | "strong"
+    confidence?: number        // 0–1
+    moneySignal?: "no" | "maybe" | "yes"
+  }
+
+  importance: number          // 0–1
+  source: {
+    kind: "USER_ACTION" | "SYSTEM_RULE" | "AGENT_OUTPUT"
+    ref?: string
+  }
+}
+
+### Persistence
+- Store memory items in the app’s existing persistence system
+- ALSO externalize as real artifacts:
+  - /memory/memory_bank.json (canonical)
+  - optional: /memory/memory_bank.md (human digest)
+- Use the existing file patch system to update these
+
+### Memory retrieval (critical)
+Implement:
+retrieveMemory(query, context)
+
+Ranking must combine:
+- relevance to query (token overlap; embeddings only if already present)
+- recency (decay by age)
+- importance
+- entity match boost (active ideas, customers)
+
+Return a bounded “Memory Pack”:
+- top 10–20 items
+- summaries only
+- include ids + timestamps + type
+
+Every agent query MUST receive a Memory Pack.
+
+UI:
+- Add a “Memory Bank” panel
+- Filter by type
+- Search
+- Click to inspect details and linked artifacts
+
+--------------------------------------------------
+2) EVENT-DRIVEN MEMORY CREATION
+--------------------------------------------------
+Memory is written automatically when important things happen.
+
+### Assumptions
+- Allow ideas to have explicit assumptions
+- Creating/editing an assumption creates or updates ASSUMPTION memory
+
+### Decisions
+When an idea is:
+- KILLED:
+  - create DECISION memory
+  - create LESSON memory (anti-pattern distilled)
+  - evidenceQuality depends on presence of conversations
+- PROVEN:
+  - create DECISION + MILESTONE memory
+
+### Customer conversations (see section 4)
+- Completing a conversation creates CUSTOMER_CONVO memory
+- moneySignal derived from fields
+- importance boosted if “put money down” = yes
+
+### Contradictions (important)
+If predictions exist and outcomes contradict them:
+- auto-create CONTRADICTION memory
+
+--------------------------------------------------
+3) DEVIL’S ADVOCATE AGENT
+--------------------------------------------------
+Add a second agent mode: “Devil’s Advocate”.
+
+Rules:
+- Read-only by default (cannot apply patches)
+- Must always retrieve memory
+- Must challenge the user
+
+Output structure:
+1) Top assumptions (from ideas + memory)
+2) Weak or missing evidence
+3) Fastest falsification tests
+4) Similar past failures (from memory)
+
+UI:
+- Toggle between “Copilot” and “Devil’s Advocate”
+- Show cited MemoryItems inline
+
+--------------------------------------------------
+4) CUSTOMER CONVERSATION TRACKER (ENFORCED)
+--------------------------------------------------
+Add CustomerConversation entity:
+
+Required fields:
+- customerName
+- date
+- time
+- notes (unstructured text)
+
+Completion-required fields:
+- potentialCustomer (yes/no)
+- putMoneyDown (yes/no)
+
+Rules:
+- Conversation cannot be marked COMPLETED unless all required fields are filled
+- On completion:
+  1) Write CUSTOMER_CONVO memory
+  2) Append to customer feedback doc
+  3) Update pipeline table
+
+--------------------------------------------------
+5) AUTOMATED CUSTOMER FEEDBACK DOC
+--------------------------------------------------
+Maintain:
+- /customers/customer_feedback.md
+
+On conversation completion:
+- Append under date:
+  - customer name
+  - potentialCustomer
+  - putMoneyDown
+  - notes (verbatim)
+  - linked ideas
+- Maintain bounded “Top Themes” section (≤10 themes)
+- Use file patch system
+- Show success toast
+
+--------------------------------------------------
+6) CUSTOMER PIPELINE TABLE
+--------------------------------------------------
+Add a table view showing all COMPLETED conversations:
+
+Columns:
+- date
+- time
+- customer name
+- potentialCustomer
+- putMoneyDown
+- linked ideas
+- notes preview (expandable)
+
+Features:
+- filters
+- sort
+- CSV export
+- clicking row opens detail panel + memory references
+
+--------------------------------------------------
+7) MEMORY INJECTION INTO ALL AGENTS
+--------------------------------------------------
+Update agent prompt assembly so EVERY request includes:
+- Memory Pack
+- active idea context
+- recent customer conversations (summarized)
+
+Show “Memory used” in UI for transparency.
+
+--------------------------------------------------
+DELIVERABLES
+--------------------------------------------------
+- Incremental implementation (do not rewrite app)
+- Updated file tree
+- Key modified files
+- README update explaining Memory Bank + Devil’s Advocate
+- Manual test path:
+  1) Create idea + assumptions
+  2) Log customer conversation
+  3) Complete conversation
+  4) Verify feedback doc + pipeline table + memory entries
+  5) Ask Devil’s Advocate and see memory citations
+  6) Kill idea and observe DECISION + LESSON memory
+
+Start by scanning the repo to locate:
+- agent prompt builder
+- file patch/edit mechanism
+- persistence layer
+
+Then implement in this order:
+1) MemoryItem types + storage
+2) retrieveMemory() + Memory Bank UI
+3) event hooks (idea, conversation, decision)
+4) Devil’s Advocate agent
+5) feedback doc + pipeline table
+
+Do not add features outside this scope.

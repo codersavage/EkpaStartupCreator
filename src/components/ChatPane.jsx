@@ -3,22 +3,23 @@ import { Send, Bot, User, Loader2, FileEdit, Plus, Trash2, MessageSquare, Chevro
 import { useChat } from '../hooks/useChat'
 
 export default function ChatPane() {
-  const { 
-    sessions, 
-    activeSession, 
-    activeSessionId, 
-    switchSession, 
-    newSession, 
-    removeSession, 
-    messages, 
+  const {
+    sessions,
+    activeSession,
+    activeSessionId,
+    switchSession,
+    newSession,
+    removeSession,
+    messages,
     loading,
     status,
-    send, 
-    clear 
+    send,
+    clear
   } = useChat()
-  
+
   const [input, setInput] = useState('')
   const [showSessions, setShowSessions] = useState(true)
+  const [agentMode, setAgentMode] = useState('copilot') // 'copilot' or 'devils_advocate'
   const scrollRef = useRef(null)
 
   useEffect(() => {
@@ -30,7 +31,7 @@ export default function ChatPane() {
   const handleSend = () => {
     const text = input.trim()
     if (!text || loading) return
-    send(text)
+    send(text, agentMode)
     setInput('')
   }
 
@@ -119,11 +120,37 @@ export default function ChatPane() {
               )}
             </button>
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-blue-500" />
+              <span className={`w-2 h-2 rounded-full ${agentMode === 'devils_advocate' ? 'bg-red-500' : 'bg-blue-500'}`} />
               <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate max-w-[180px]">
                 {activeSession.title}
               </span>
             </div>
+          </div>
+        </div>
+
+        {/* Agent Mode Toggle */}
+        <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+          <div className="flex gap-1">
+            <button
+              onClick={() => setAgentMode('copilot')}
+              className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
+                agentMode === 'copilot'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              Copilot
+            </button>
+            <button
+              onClick={() => setAgentMode('devils_advocate')}
+              className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
+                agentMode === 'devils_advocate'
+                  ? 'bg-red-500 text-white'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              Devil's Advocate
+            </button>
           </div>
         </div>
 
@@ -132,8 +159,16 @@ export default function ChatPane() {
           {messages.map((msg, i) => (
             <div key={i} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : ''}`}>
               {msg.role === 'agent' && (
-                <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center shrink-0 mt-0.5">
-                  <Bot className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                  agentMode === 'devils_advocate'
+                    ? 'bg-red-100 dark:bg-red-900/40'
+                    : 'bg-blue-100 dark:bg-blue-900/40'
+                }`}>
+                  <Bot className={`w-3.5 h-3.5 ${
+                    agentMode === 'devils_advocate'
+                      ? 'text-red-600 dark:text-red-400'
+                      : 'text-blue-600 dark:text-blue-400'
+                  }`} />
                 </div>
               )}
               <div className="max-w-[85%] min-w-0">
@@ -161,6 +196,13 @@ export default function ChatPane() {
                     ))}
                   </div>
                 )}
+                {msg.memoryUsed?.length > 0 && (
+                  <div className="mt-1.5">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      Memory Used: {msg.memoryUsed.length} {msg.memoryUsed.length === 1 ? 'item' : 'items'}
+                    </span>
+                  </div>
+                )}
               </div>
               {msg.role === 'user' && (
                 <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center shrink-0 mt-0.5">
@@ -172,8 +214,16 @@ export default function ChatPane() {
 
           {loading && (
             <div className="flex gap-2">
-              <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center shrink-0 mt-0.5">
-                <Bot className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                agentMode === 'devils_advocate'
+                  ? 'bg-red-100 dark:bg-red-900/40'
+                  : 'bg-blue-100 dark:bg-blue-900/40'
+              }`}>
+                <Bot className={`w-3.5 h-3.5 ${
+                  agentMode === 'devils_advocate'
+                    ? 'text-red-600 dark:text-red-400'
+                    : 'text-blue-600 dark:text-blue-400'
+                }`} />
               </div>
               <div className="bg-white dark:bg-gray-800 ring-1 ring-gray-200 dark:ring-gray-700 rounded-xl px-3 py-2 text-sm text-gray-400 dark:text-gray-500 flex items-center gap-2">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -192,7 +242,7 @@ export default function ChatPane() {
               onKeyDown={handleKeyDown}
               disabled={loading}
               rows={1}
-              placeholder="Message assistant..."
+              placeholder={agentMode === 'devils_advocate' ? 'Challenge me...' : 'Message assistant...'}
               className="flex-1 px-3 py-2 text-sm rounded-xl resize-none
                 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200
                 ring-1 ring-gray-200 dark:ring-gray-700
